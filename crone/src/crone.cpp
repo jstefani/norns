@@ -150,6 +150,10 @@ void crone_tape_rec_stop() {
     mixerClient->stopTapeRecord();
 }
 
+void crone_tape_rec_fade_time(float seconds) {
+    mixerClient->setTapeRecordFadeTime(seconds);
+}
+
 void crone_tape_play_open(const char *path) {
     mixerClient->openTapePlayback(path);
 }

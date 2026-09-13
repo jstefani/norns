@@ -495,6 +495,10 @@ void o_tape_rec_stop() {
     crone_tape_rec_stop();
 }
 
+void o_tape_rec_fade_time(float seconds) {
+    crone_tape_rec_fade_time(seconds);
+}
+
 void o_tape_play_open(char *file) {
     crone_tape_play_open(file);
     union event_data *ev = event_data_new(EVENT_TAPE_PLAY_FILE);

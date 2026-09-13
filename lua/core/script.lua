@@ -88,6 +88,9 @@ Script.clear = function()
   -- clear softcut
   softcut.reset()
 
+  -- restore tape record fade
+  audio.tape_record_fade_time(0)
+
   -- restore default audio routing
   if audio.routing_is_altered() then
     print("# restoring default audio routing")

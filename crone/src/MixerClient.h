@@ -154,6 +154,10 @@ class MixerClient : public Client<6, 6> {
         tape.writer.stop();
     }
 
+    void setTapeRecordFadeTime(float seconds) {
+        tape.setRecordFadeTime(seconds);
+    }
+
     void openTapePlayback(const char *path) {
         tape.reader.open(path);
     }

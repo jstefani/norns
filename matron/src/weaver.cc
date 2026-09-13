@@ -233,6 +233,7 @@ static int _tape_rec_open(lua_State *l);
 static int _tape_rec_start(lua_State *l);
 static int _tape_rec_pause(lua_State *l);
 static int _tape_rec_stop(lua_State *l);
+static int _tape_rec_fade_time(lua_State *l);
 static int _tape_play_open(lua_State *l);
 static int _tape_play_start(lua_State *l);
 static int _tape_play_pause(lua_State *l);
@@ -445,6 +446,7 @@ void w_init(void) {
     lua_register_norns("tape_record_start", &_tape_rec_start);
     lua_register_norns("tape_record_pause", &_tape_rec_pause);
     lua_register_norns("tape_record_stop", &_tape_rec_stop);
+    lua_register_norns("tape_record_fade_time", &_tape_rec_fade_time);
     lua_register_norns("tape_play_open", &_tape_play_open);
     lua_register_norns("tape_play_start", &_tape_play_start);
     lua_register_norns("tape_play_pause", &_tape_play_pause);
@@ -3046,6 +3048,12 @@ int _tape_rec_pause(lua_State *l) {
 
 int _tape_rec_stop(lua_State *l) {
     o_tape_rec_stop();
+    return 0;
+}
+
+int _tape_rec_fade_time(lua_State *l) {
+    lua_check_num_args(1);
+    o_tape_rec_fade_time((float)luaL_checknumber(l, 1));
     return 0;
 }
 

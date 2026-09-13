@@ -403,6 +403,7 @@ void crone_tape_rec_open(const char *arg0);
 void crone_tape_rec_start();
 void crone_tape_rec_pause(int paused);
 void crone_tape_rec_stop();
+void crone_tape_rec_fade_time(float seconds);
 void crone_tape_play_open(const char *arg0);
 void crone_tape_play_start();
 void crone_tape_play_pause(int paused);

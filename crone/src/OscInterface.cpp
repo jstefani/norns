@@ -954,6 +954,13 @@ void OscInterface::addServerMethods() {
         mixerClient->stopTapeRecord();
     });
 
+    addServerMethod("/tape/record/fade_time", "f", [](lo_arg **argv, int argc) {
+        if (argc < 1) {
+            return;
+        }
+        mixerClient->setTapeRecordFadeTime(argv[0]->f);
+    });
+
     addServerMethod("/tape/play/open", "s", [](lo_arg **argv, int argc) {
         if (argc < 1) {
             return;

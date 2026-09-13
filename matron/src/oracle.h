@@ -131,6 +131,7 @@ extern void o_tape_rec_open(char *file);
 extern void o_tape_rec_start();
 extern void o_tape_rec_pause(int paused);
 extern void o_tape_rec_stop();
+extern void o_tape_rec_fade_time(float seconds);
 extern void o_tape_play_open(char *file);
 extern void o_tape_play_start();
 extern void o_tape_play_pause(int paused);

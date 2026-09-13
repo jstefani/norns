@@ -5,6 +5,7 @@
 #ifndef CRONE_TAPE_H
 #define CRONE_TAPE_H
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -76,6 +77,7 @@ class Tape {
 
         std::atomic<EnvState> envState;
         std::atomic<int> envIdx;
+        std::atomic<int> fadeSamples{static_cast<int>(Window::raisedCosShortLen)};
         std::atomic<TransportState> transportState;
 
         // incremented on each start(); all enqueued commands are stamped with
@@ -240,6 +242,7 @@ class Tape {
                 case Command::Pause:
                     if (transportState == TransportState::Running ||
                         transportState == TransportState::Starting) {
+                        envIdx = std::min(envIdx.load(), fadeSamples - 1);
                         envState = EnvState::FadeOut;
                         transportState = TransportState::Pausing;
                     }
@@ -254,6 +257,7 @@ class Tape {
                     break;
 
                 case Command::Stop:
+                    envIdx = std::min(envIdx.load(), fadeSamples - 1);
                     envState = EnvState::FadeOut;
                     transportState = TransportState::Stopping;
                     break;
@@ -282,16 +286,21 @@ class Tape {
             }
         }
 
+        // <= 0 restores the default
+        void setFadeSamples(int n) {
+            fadeSamples = n <= 0 ? static_cast<int>(Window::raisedCosShortLen) : n;
+        }
+
         float getEnvSample() {
             float y = 0.f;
             EnvState currentEnvState = envState;
             switch (currentEnvState) {
             case EnvState::FadeIn:
-                y = Window::raisedCosShort[envIdx];
+                y = envValue();
                 incEnv();
                 break;
             case EnvState::FadeOut:
-                y = Window::raisedCosShort[envIdx];
+                y = envValue();
                 decEnv();
                 break;
             case EnvState::On:
@@ -306,10 +315,17 @@ class Tape {
         }
 
       private:
+        // scale envIdx onto the window table
+        float envValue() const {
+            const int n = fadeSamples;
+            const int i = std::min(envIdx.load(), n - 1);
+            return Window::raisedCosShort[(long)i * (long)(Window::raisedCosShortLen - 1) / std::max(n - 1, 1)];
+        }
+
         void incEnv() {
             int currentIdx = envIdx.fetch_add(1);
-            if (currentIdx >= static_cast<int>(Window::raisedCosShortLen) - 1) {
-                envIdx = static_cast<int>(Window::raisedCosShortLen) - 1;
+            if (currentIdx >= fadeSamples - 1) {
+                envIdx = fadeSamples - 1;
                 envState = EnvState::On;
                 fadeInDone = true;
             }
@@ -1008,6 +1024,10 @@ class Tape {
                 reader.resume();
             }
         }
+    }
+
+    void setRecordFadeTime(float seconds) {
+        writer.setFadeSamples(static_cast<int>(seconds * systemSampleRate + 0.5f));
     }
 
     void setSampleRate(float sr) {

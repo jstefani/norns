@@ -90,6 +90,7 @@ osc methods:
  /tape/record/start []
  /tape/record/pause [i]
  /tape/record/stop []
+ /tape/record/fade_time [f]
  /tape/play/open [s]
  /tape/play/close []
  /tape/play/start []

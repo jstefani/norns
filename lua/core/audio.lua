@@ -343,6 +343,13 @@ Audio.tape_record_stop = function()
   _norns.tape_record_stop()
 end
 
+--- set tape recording start/stop fade time.
+-- 0 restores the default (0.05). reset on script clear.
+-- @tparam number seconds
+Audio.tape_record_fade_time = function(seconds)
+  _norns.tape_record_fade_time(seconds)
+end
+
 
 --- Softcut levels
 -- @section softcut
