@@ -633,6 +633,7 @@ class Tape {
         std::atomic<float> rate{1.f};
         double phase = 0.0;
         Sample hist[4][NumChannels] = {};
+        bool resampling = false;
 
         static inline float hermite(float xm1, float x0, float x1, float x2, float t) noexcept {
             const float c = (x1 - xm1) * 0.5f;
@@ -644,6 +645,7 @@ class Tape {
         }
 
         void resetResampler() noexcept {
+            resampling = false;
             phase = 0.0;
             for (auto &h : hist) {
                 for (int ch = 0; ch < NumChannels; ++ch) {
@@ -760,6 +762,109 @@ class Tape {
                 return;
             }
 
+            if (rate.load(std::memory_order_relaxed) != 1.f) {
+                processResampled(dst, numFrames);
+                return;
+            }
+            resampling = false;
+
+            jack_ringbuffer_t *rb = this->ringBuf.get();
+            auto framesInBuf = jack_ringbuffer_read_space(rb) / frameSize;
+
+            // handle underrun: not enough data in ringbuffer
+            if (framesInBuf < numFrames) {
+                // pull from ringbuffer
+                jack_ringbuffer_read(rb, (char *)pullBuf, framesInBuf * frameSize);
+                float *src = pullBuf;
+                size_t fr = 0;
+                while (fr < framesInBuf) {
+                    float amp = SfStream::getEnvSample();
+                    for (int ch = 0; ch < NumChannels; ++ch) {
+                        dst[ch][fr] = *src++ * amp;
+                    }
+                    fr++;
+                }
+                while (fr < numFrames) {
+                    for (int ch = 0; ch < NumChannels; ++ch) {
+                        dst[ch][fr] = 0.f;
+                    }
+                    fr++;
+                }
+                // account for frames actually consumed when computing position
+                framesProcessed.fetch_add(framesInBuf);
+                // request more data from disk thread; disk thread will signal stop on EOF for non-loop
+                {
+                    std::lock_guard<std::mutex> lock(this->diskMutex);
+                    this->needsData = true;
+                    this->cv.notify_one();
+                }
+            } else {
+
+                // pull from ringbuffer (defensively cap to local buffer capacity)
+                size_t framesToPull = numFrames;
+                if (framesToPull > maxFramesToRead) {
+                    framesToPull = maxFramesToRead;
+                }
+                jack_ringbuffer_read(rb, (char *)pullBuf, framesToPull * frameSize);
+
+                {
+                    std::lock_guard<std::mutex> lock(this->diskMutex);
+                    this->needsData = true;
+                    this->cv.notify_one();
+                }
+
+                float *src = pullBuf;
+
+                for (size_t fr = 0; fr < framesToPull; ++fr) {
+                    float amp = SfStream::getEnvSample();
+                    for (int ch = 0; ch < NumChannels; ++ch) {
+                        dst[ch][fr] = *src++ * amp;
+                    }
+                }
+                // if the host buffer is larger than our pull buffer, pad the remainder with silence.
+                // this mirrors the underrun behavior (when framesInBuf < numFrames), keeping output
+                // deterministic and avoiding uninitialized tail data.
+                for (size_t fr = framesToPull; fr < numFrames; ++fr) {
+                    for (int ch = 0; ch < NumChannels; ++ch) {
+                        dst[ch][fr] = 0.f;
+                    }
+                }
+                framesProcessed.fetch_add(framesToPull);
+            }
+            // if disk thread has stopped and the ringbuffer is drained, mark stream unprimed
+            if (!SfStream::isRunning) {
+                if (jack_ringbuffer_read_space(this->ringBuf.get()) == 0) {
+                    // ringbuffer fully drained after EOF: park reader as unprimed
+                    isPrimed = false;
+                    // reset position so UI shows 0:00 when READY
+                    framesProcessed.store(0, std::memory_order_relaxed);
+                }
+            }
+        }
+
+        // variable-rate path, taken by process() when rate != 1.0. same
+        // contract as the stock body: dst filled, ringbuffer consumed at
+        // `rate` frames per output frame, disk thread poked, drained file parked.
+        void processResampled(float *dst[NumChannels], size_t numFrames) {
+            jack_ringbuffer_t *rb0 = this->ringBuf.get();
+            if (!resampling) {
+                // coming from the stock path: seed the history from the stream
+                // so the first interpolated frames are continuous with it
+                resetResampler();
+                size_t seed = jack_ringbuffer_read_space(rb0) / frameSize;
+                if (seed > 4) {
+                    seed = 4;
+                }
+                jack_ringbuffer_read(rb0, (char *)pullBuf, seed * frameSize);
+                for (size_t k = 0; k < seed; ++k) {
+                    for (int ch = 0; ch < NumChannels; ++ch) {
+                        hist[k][ch] = pullBuf[k * NumChannels + ch];
+                    }
+                }
+                framesProcessed.fetch_add(seed);
+                resampling = true;
+            }
+
             jack_ringbuffer_t *rb = this->ringBuf.get();
             const size_t framesInBuf = jack_ringbuffer_read_space(rb) / frameSize;
             const double r = static_cast<double>(rate.load(std::memory_order_relaxed));
@@ -805,12 +910,11 @@ class Tape {
             }
             // position advances by source frames actually consumed
             framesProcessed.fetch_add(avail);
+
             // if disk thread has stopped and the ringbuffer is drained, mark stream unprimed
             if (!SfStream::isRunning) {
-                if (jack_ringbuffer_read_space(this->ringBuf.get()) == 0) {
-                    // ringbuffer fully drained after EOF: park reader as unprimed
+                if (jack_ringbuffer_read_space(rb) == 0) {
                     isPrimed = false;
-                    // reset position so UI shows 0:00 when READY
                     framesProcessed.store(0, std::memory_order_relaxed);
                 }
             }
