@@ -19,6 +19,7 @@ local function setup_core_audio_env(opts)
     tape_play_pause = mock.spy(),
     tape_play_stop = mock.spy(),
     tape_play_loop = mock.spy(),
+    tape_play_rate = mock.spy(),
     tape_record_open = mock.spy(),
     tape_record_start = mock.spy(),
     tape_record_pause = mock.spy(),
@@ -178,6 +179,11 @@ function TestAudioTape.test_controls_call_engine()
   _norns.tape_play_loop.reset()
   audio.tape_play_loop(false)
   luaunit.assertEquals(_norns.tape_play_loop.args(1)[1], 0)
+
+  _norns.tape_play_rate.reset()
+  audio.tape_play_rate(1.5)
+  luaunit.assertTrue(_norns.tape_play_rate.called())
+  luaunit.assertEquals(_norns.tape_play_rate.args(1)[1], 1.5)
 
   -- record controls
   _norns.tape_record_open.reset()
