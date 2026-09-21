@@ -241,6 +241,7 @@ static int _tape_play_loop(lua_State *l);
 static int _tape_pause(lua_State *l);
 static int _tape_resume(lua_State *l);
 static int _tape_loop(lua_State *l);
+static int _tape_play_rate(lua_State *l);
 
 // cut
 static int _set_level_adc_cut(lua_State *l);
@@ -453,6 +454,7 @@ void w_init(void) {
     lua_register_norns("tape_pause", &_tape_pause);
     lua_register_norns("tape_resume", &_tape_resume);
     lua_register_norns("tape_loop", &_tape_loop);
+    lua_register_norns("tape_play_rate", &_tape_play_rate);
 
     // polls
     lua_register_norns("poll_start_vu", &_poll_start_vu);
@@ -3110,6 +3112,14 @@ int _tape_loop(lua_State *l) {
         enabled = (int)luaL_checknumber(l, 1) != 0 ? 1 : 0;
     }
     o_tape_loop(enabled);
+    return 0;
+}
+
+int _tape_play_rate(lua_State *l) {
+    lua_check_num_args(1);
+    float rate = (float)luaL_checknumber(l, 1);
+    o_tape_play_rate(rate);
+    lua_settop(l, 0);
     return 0;
 }
 

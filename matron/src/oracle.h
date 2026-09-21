@@ -140,6 +140,8 @@ extern void o_tape_pause();
 extern void o_tape_resume();
 extern void o_tape_loop(int enabled);
 
+extern void o_tape_play_rate(float rate);
+
 //--- cut
 extern void o_set_level_adc_cut(float value);
 extern void o_set_level_ext_cut(float value);

@@ -989,6 +989,13 @@ void OscInterface::addServerMethods() {
         mixerClient->setTapeLoop(argv[0]->i != 0);
     });
 
+    addServerMethod("/tape/play/rate", "f", [](lo_arg **argv, int argc) {
+        if (argc < 1) {
+            return;
+        }
+        mixerClient->setTapePlayRate(argv[0]->f);
+    });
+
     addServerMethod("/set/level/tape", "f", [](lo_arg **argv, int argc) {
         if (argc < 1) {
             return;

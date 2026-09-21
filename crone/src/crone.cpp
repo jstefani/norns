@@ -170,6 +170,10 @@ void crone_tape_play_loop(int enabled) {
     mixerClient->setTapeLoop(enabled);
 }
 
+void crone_tape_play_rate(float rate) {
+    mixerClient->setTapePlayRate(rate);
+}
+
 void crone_tape_pause() {
     mixerClient->pauseTapeRecord(1);
     mixerClient->pauseTapePlayback(1);

@@ -17,6 +17,7 @@
 #include <cstring>
 #include <jack/ringbuffer.h>
 #include <jack/types.h>
+#include <cmath>
 #include <sndfile.h>
 
 #include "Window.h"
@@ -622,6 +623,52 @@ class Tape {
         bool needsData{};
         std::atomic<bool> loopFile{};
 
+        // variable-rate playback. source frames are pulled from the
+        // ringbuffer at `rate` frames per output frame and resampled with
+        // 4-point Hermite interpolation. hist[] holds the last four source
+        // frames; the output sits between hist[1] and hist[2] at `phase`.
+        // rate 1.0 is bit-exact apart from a two-frame delay.
+        static constexpr float minRate = 0.125f;
+        static constexpr float maxRate = 4.f; // keeps a 128-frame block under maxFramesToRead
+        std::atomic<float> rate{1.f};
+        double phase = 0.0;
+        Sample hist[4][NumChannels] = {};
+
+        static inline float hermite(float xm1, float x0, float x1, float x2, float t) noexcept {
+            const float c = (x1 - xm1) * 0.5f;
+            const float v = x0 - x1;
+            const float w = c + v;
+            const float a = w + v + (x2 - x0) * 0.5f;
+            const float b = w + a;
+            return (((a * t - b) * t + c) * t) + x0;
+        }
+
+        void resetResampler() noexcept {
+            phase = 0.0;
+            for (auto &h : hist) {
+                for (int ch = 0; ch < NumChannels; ++ch) {
+                    h[ch] = 0.f;
+                }
+            }
+        }
+
+      public:
+        // from any thread: playback rate, 1.0 = original speed
+        void setRate(float r) noexcept {
+            if (!(r > 0.f)) {
+                r = 1.f;
+            }
+            if (r < minRate) {
+                r = minRate;
+            } else if (r > maxRate) {
+                r = maxRate;
+            }
+            rate = r;
+        }
+        float getRate() const noexcept {
+            return rate.load(std::memory_order_relaxed);
+        }
+
       private:
         // prime the ringbuffer
         void prime() {
@@ -714,68 +761,50 @@ class Tape {
             }
 
             jack_ringbuffer_t *rb = this->ringBuf.get();
-            auto framesInBuf = jack_ringbuffer_read_space(rb) / frameSize;
+            const size_t framesInBuf = jack_ringbuffer_read_space(rb) / frameSize;
+            const double r = static_cast<double>(rate.load(std::memory_order_relaxed));
 
-            // handle underrun: not enough data in ringbuffer
-            if (framesInBuf < numFrames) {
-                // pull from ringbuffer
-                jack_ringbuffer_read(rb, (char *)pullBuf, framesInBuf * frameSize);
-                float *src = pullBuf;
-                size_t fr = 0;
-                while (fr < framesInBuf) {
-                    float amp = SfStream::getEnvSample();
-                    for (int ch = 0; ch < NumChannels; ++ch) {
-                        dst[ch][fr] = *src++ * amp;
-                    }
-                    fr++;
-                }
-                while (fr < numFrames) {
-                    for (int ch = 0; ch < NumChannels; ++ch) {
-                        dst[ch][fr] = 0.f;
-                    }
-                    fr++;
-                }
-                // account for frames actually consumed when computing position
-                framesProcessed.fetch_add(framesInBuf);
-                // request more data from disk thread; disk thread will signal stop on EOF for non-loop
-                {
-                    std::lock_guard<std::mutex> lock(this->diskMutex);
-                    this->needsData = true;
-                    this->cv.notify_one();
-                }
-            } else {
-
-                // pull from ringbuffer (defensively cap to local buffer capacity)
-                size_t framesToPull = numFrames;
-                if (framesToPull > maxFramesToRead) {
-                    framesToPull = maxFramesToRead;
-                }
-                jack_ringbuffer_read(rb, (char *)pullBuf, framesToPull * frameSize);
-
-                {
-                    std::lock_guard<std::mutex> lock(this->diskMutex);
-                    this->needsData = true;
-                    this->cv.notify_one();
-                }
-
-                float *src = pullBuf;
-
-                for (size_t fr = 0; fr < framesToPull; ++fr) {
-                    float amp = SfStream::getEnvSample();
-                    for (int ch = 0; ch < NumChannels; ++ch) {
-                        dst[ch][fr] = *src++ * amp;
-                    }
-                }
-                // if the host buffer is larger than our pull buffer, pad the remainder with silence.
-                // this mirrors the underrun behavior (when framesInBuf < numFrames), keeping output
-                // deterministic and avoiding uninitialized tail data.
-                for (size_t fr = framesToPull; fr < numFrames; ++fr) {
-                    for (int ch = 0; ch < NumChannels; ++ch) {
-                        dst[ch][fr] = 0.f;
-                    }
-                }
-                framesProcessed.fetch_add(framesToPull);
+            // source frames this block consumes is fixed by the rate: the
+            // resampler shifts one in every time phase passes 1.
+            size_t need = static_cast<size_t>(std::floor(phase + r * static_cast<double>(numFrames)));
+            if (need > maxFramesToRead) {
+                need = maxFramesToRead; // unreachable at maxRate with a 128-frame period
             }
+            // underrun: pull what there is, the rest of the block shifts in silence
+            const size_t avail = framesInBuf < need ? framesInBuf : need;
+            if (avail > 0) {
+                jack_ringbuffer_read(rb, (char *)pullBuf, avail * frameSize);
+            }
+            // request more data from disk thread; disk thread will signal stop on EOF for non-loop
+            {
+                std::lock_guard<std::mutex> lock(this->diskMutex);
+                this->needsData = true;
+                this->cv.notify_one();
+            }
+
+            const float *src = pullBuf;
+            size_t pulled = 0;
+            for (size_t fr = 0; fr < numFrames; ++fr) {
+                const float amp = SfStream::getEnvSample();
+                const float t = static_cast<float>(phase);
+                for (int ch = 0; ch < NumChannels; ++ch) {
+                    dst[ch][fr] = hermite(hist[0][ch], hist[1][ch], hist[2][ch], hist[3][ch], t) * amp;
+                }
+                phase += r;
+                while (phase >= 1.0) {
+                    const bool have = pulled < avail;
+                    for (int ch = 0; ch < NumChannels; ++ch) {
+                        hist[0][ch] = hist[1][ch];
+                        hist[1][ch] = hist[2][ch];
+                        hist[2][ch] = hist[3][ch];
+                        hist[3][ch] = have ? *src++ : 0.f;
+                    }
+                    ++pulled;
+                    phase -= 1.0;
+                }
+            }
+            // position advances by source frames actually consumed
+            framesProcessed.fetch_add(avail);
             // if disk thread has stopped and the ringbuffer is drained, mark stream unprimed
             if (!SfStream::isRunning) {
                 if (jack_ringbuffer_read_space(this->ringBuf.get()) == 0) {
@@ -806,6 +835,7 @@ class Tape {
 
             jack_ringbuffer_reset(this->ringBuf.get());
             isPrimed = false;
+            resetResampler();
 
             this->envIdx = 0;
             this->envState = SfStream::EnvState::Off;
@@ -828,6 +858,7 @@ class Tape {
             this->transportState = TransportState::Idle;
             framesProcessed = 0;
             jack_ringbuffer_reset(this->ringBuf.get());
+            resetResampler();
             SfStream::start();
         }
 

@@ -408,6 +408,7 @@ void crone_tape_play_start();
 void crone_tape_play_pause(int paused);
 void crone_tape_play_stop();
 void crone_tape_play_loop(int enabled);
+void crone_tape_play_rate(float rate);
 void crone_tape_pause();
 void crone_tape_resume();
 

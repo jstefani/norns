@@ -178,6 +178,9 @@ class MixerClient : public Client<6, 6> {
         return tapePoll.get();
     }
 
+    void setTapePlayRate(float rate) {
+        tape.reader.setRate(rate);
+    }
     void setTapeLoop(bool loop) {
         tape.setLooping(loop);
     }

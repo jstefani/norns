@@ -96,5 +96,6 @@ osc methods:
  /tape/play/pause [i]
  /tape/play/stop []
  /tape/play/loop [i]
+ /tape/play/rate [f]
  /set/level/tape [f]
  /set/level/tape_rev [f]

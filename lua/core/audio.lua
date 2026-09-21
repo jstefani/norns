@@ -321,6 +321,14 @@ Audio.tape_loop = function(enabled)
   _norns.tape_loop(enabled and 1 or 0)
 end
 
+--- set tape playback rate.
+-- 1.0 is original speed; 0.5 an octave down, 2.0 an octave up.
+-- clamped to 0.125 .. 4.0 in crone. takes effect immediately.
+-- @tparam number rate
+Audio.tape_play_rate = function(rate)
+  _norns.tape_play_rate(rate)
+end
+
 --- open a tape recording file.
 -- @param file
 Audio.tape_record_open = function(file)

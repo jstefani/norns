@@ -530,6 +530,10 @@ void o_tape_loop(int enabled) {
     crone_tape_play_loop(enabled);
 }
 
+void o_tape_play_rate(float rate) {
+    crone_tape_play_rate(rate);
+}
+
 //--- cut
 void o_cut_enable(int i, float value) {
     crone_set_enabled_cut(i, value);
